@@ -33,18 +33,22 @@ logger.log(100, 'test')
 # Chromeを起動
 chrome_command = [
     "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-    "--remote-debugging-port=9222",
+    "--remote-debugging-port=9223",
     "--profile-directory=Default"
 ]
 subprocess.Popen(chrome_command)
 
-chrome_url = "http://localhost:9222"
+time.sleep(5)
+
+chrome_url = "http://localhost:9223"
 
 # 待機ループ
 while True:
     try:
         # ChromeへのHTTPリクエストを送信
         response = requests.get(chrome_url)
+        print("reponse")
+        print(response)
         
         # 応答があれば、ループを終了
         if response.status_code == 200:
@@ -52,7 +56,6 @@ while True:
     except requests.ConnectionError:
         # 接続エラーが発生した場合は無視して継続
         pass
-    
     # Chromeが起動するのを待つために1秒間スリープ
     time.sleep(1)
 
@@ -62,8 +65,8 @@ print("Chromeが起動しました。")
 
 
 #resellcountは再出品の個数、アカウントの強さや出品数に応じて値を設定する
-resellcount = int(input())
-# resellcount = 3
+# resellcount = int(input())
+resellcount = 3
 
 #フリマクラス
 class FreeMarket(metaclass = ABCMeta):
