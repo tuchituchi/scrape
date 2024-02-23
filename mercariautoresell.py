@@ -2,7 +2,9 @@
 import time
 import random
 from abc import ABCMeta,abstractmethod
+from webdriver_manager.chrome import ChromeDriverManager
 from selenium import webdriver
+from selenium.webdriver.chrome.service import Service as ChromeService
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
@@ -12,7 +14,6 @@ from selenium.webdriver.common.alert import Alert
 import subprocess
 import requests
 import logging
-import os
 
 # ログの出力名を設定（1）
 logger = logging.getLogger('LoggingTest')
@@ -24,31 +25,23 @@ logger.addHandler(sh)
 # ログのファイル出力先を設定（4）
 fh = logging.FileHandler('./cron.log')
 logger.addHandler(fh)
-
-logger.log(20, 'info')
-logger.log(30, 'warning')
-logger.log(100, 'test')
  
 
 # Chromeを起動
 chrome_command = [
     "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-    "--remote-debugging-port=9223",
+    "--remote-debugging-port=9222",
     "--profile-directory=Default"
 ]
 subprocess.Popen(chrome_command)
 
-time.sleep(5)
-
-chrome_url = "http://localhost:9223"
+chrome_url = "http://localhost:9222"
 
 # 待機ループ
 while True:
     try:
         # ChromeへのHTTPリクエストを送信
         response = requests.get(chrome_url)
-        print("reponse")
-        print(response)
         
         # 応答があれば、ループを終了
         if response.status_code == 200:
@@ -62,11 +55,9 @@ while True:
 print("Chromeが起動しました。")
 
 
-
-
 #resellcountは再出品の個数、アカウントの強さや出品数に応じて値を設定する
-# resellcount = int(input())
-resellcount = 3
+resellcount = int(input())
+print(str(resellcount)+"products is reselled")
 
 #フリマクラス
 class FreeMarket(metaclass = ABCMeta):
@@ -77,21 +68,28 @@ class FreeMarket(metaclass = ABCMeta):
         # ヘッドレスモードを有効化
         self.options.headless = True
         self.options.add_argument("--window-size=400,300")  # ウィンドウサイズを極小に設定
-        self.driver = webdriver.Chrome(options=self.options)
+        self.driver = webdriver.Chrome(service=ChromeService(ChromeDriverManager().install()),options=self.options)
     #各サイトのログイン情報を保持しながら指定したURLのサイトを開く
     def open_window(self,URL):
         self.driver.execute_script("window.open()")
         time.sleep(1)
         self.driver.switch_to.window(self.driver.window_handles[-1])
         self.driver.get(URL)  
+        chrome_version = self.driver.capabilities
+        print(f"Chromeドライバーのバージョン: {chrome_version}")
     #商品の再出品
     def resell(self,item,resellcount,cssselector):
+        print("再出品を始めます")
         #古い20個を再出品
         for i in reversed(range(len(item)-resellcount,len(item))):
             clone_item = item[i].find_element(By.CSS_SELECTOR,cssselector)
             self.driver.execute_script("arguments[0].scrollIntoView(false);", clone_item)
             clone_item.click()
             time.sleep(random.uniform(20,25))
+
+    def quit(self):
+        self.driver.quit()
+
     #古い商品がある場所まで遷移する挙動を定義
     @abstractmethod
     def move_to_lastpage(self):
@@ -108,11 +106,14 @@ class Mercari(FreeMarket):
         #もっと見るボタンを押す
         while True:
             try:
+                # more_button = WebDriverWait(self.driver, 5).until(
+                #     EC.presence_of_element_located((By.XPATH, '//*[contains(@class, "merButton") and contains(@class, "sc-bcb083e9-0")]//button'))
+                # )
                 more_button = WebDriverWait(self.driver, 5).until(
-                    EC.presence_of_element_located((By.XPATH, '//*[contains(@class, "merButton") and contains(@class, "sc-bcb083e9-0")]//button'))
-                )
+                    EC.presence_of_element_located((By.XPATH, '//*[@id="currentListing"]/div[2]/div/button'))
+                )                
             except TimeoutException:
-                print("Timeout")
+                print("もっと見るボタンはもうないです")
                 break
             time.sleep(random.uniform(2,3))
             more_button.click()
@@ -129,7 +130,6 @@ class Mercari(FreeMarket):
                 meritemobj.append(item)
                 sellitemcount += 1
             except NoSuchElementException:
-                print("NoSuchElementException.finish get")
                 break
         return meritemobj
     
@@ -166,11 +166,13 @@ class Rakuma(FreeMarket):
                     WebDriverWait(self.driver,20).until(EC.element_to_be_clickable((By.XPATH,'//*[@id="selling-bottom-pagination"]/nav/span'+str(i-1)+']/a')))
         finally:
             time.sleep(20)
-            print("lastcontent")
-            print(last_content)
             self.driver.execute_script("arguments[0].scrollIntoView(false);", last_content)
             time.sleep(3)
-            print(WebDriverWait(self.driver, 30).until(EC.visibility_of(last_content)))
+            try:
+                print(WebDriverWait(self.driver, 30).until(EC.visibility_of(last_content)))
+            except TimeoutException:
+                self.quit()
+                return
             print("1")
             print(last_content.is_displayed())
             print("2")
@@ -187,7 +189,7 @@ class Rakuma(FreeMarket):
     def item_delete(self,cssselector):
         deletecount = 0
         while True:
-            last_content=self.move_to_lastpage()
+            self.move_to_lastpage()
             time.sleep(30)
             item = self.get_items()
             #画面外のオブジェクトをクリックしないように、スクロール移動
@@ -203,16 +205,19 @@ class Rakuma(FreeMarket):
                 break
 
 def main_mercari():
+    print("start reselling on mercari")
     makeclass = Mercari()
     makeclass.open_window('https://jp.mercari.com/mypage/listings')
     makeclass.move_to_lastpage()
-    item = makeclass.get_items()
+    makeclass.get_items()
     makeclass.resell(makeclass.get_items(),resellcount,'#clone-item')
     makeclass.item_delete('#item-delete')
+    makeclass.quit()
 
 
 
 def main_rakuma():
+    print("start reselling on rakuma")
     makeclass=Rakuma()
     makeclass.open_window('https://fril.jp/sell')
     makeclass.move_to_lastpage()
@@ -221,6 +226,10 @@ def main_rakuma():
     makeclass.open_window('https://fril.jp/sell')
     print("再出品終わり")
     makeclass.item_delete('#ga_click_delete')
+    print("商品削除終わり")
+    makeclass.quit()
+    time.sleep(4)
+
 
 main_mercari()
 main_rakuma()
